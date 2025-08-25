@@ -1,9 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Supplier } from './entities/supplier.entity';
+import { Supplier, VerificationStatus, RegistrationStatus } from './entities/supplier.entity';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { RegisterSupplierDto } from './dto/register-supplier.dto';
+import { VerifySupplierDto } from './dto/verify-supplier.dto';
+import { UpdateRegistrationStatusDto } from './dto/update-registration-status.dto';
 import { SearchSuppliersDto } from './dto/search-suppliers.dto';
 
 export interface SupplierWithDistance extends Supplier {
@@ -27,7 +30,7 @@ export class SuppliersService {
 
   async findAll(): Promise<Supplier[]> {
     return this.supplierRepository.find({
-      where: { isActive: true },
+      where: { isActive: true, verificationStatus: VerificationStatus.VERIFIED },
       order: { name: 'ASC' },
     });
   }
@@ -44,10 +47,7 @@ export class SuppliersService {
     return supplier;
   }
 
-  async update(
-    id: string,
-    updateSupplierDto: UpdateSupplierDto,
-  ): Promise<Supplier> {
+  async update(id: string, updateSupplierDto: UpdateSupplierDto): Promise<Supplier> {
     const supplier = await this.findOne(id);
     Object.assign(supplier, updateSupplierDto);
     return this.supplierRepository.save(supplier);
@@ -59,9 +59,167 @@ export class SuppliersService {
     await this.supplierRepository.save(supplier);
   }
 
-  async findNearbySuppliers(
-    searchDto: SearchSuppliersDto,
-  ): Promise<SupplierWithDistance[]> {
+  // New registration workflow methods
+  async registerSupplier(registerSupplierDto: RegisterSupplierDto): Promise<Supplier> {
+    this.logger.log(`Registering new supplier: ${registerSupplierDto.name}`);
+    
+    // Check if email already exists
+    const existingSupplier = await this.supplierRepository.findOne({
+      where: { email: registerSupplierDto.email },
+    });
+
+    if (existingSupplier) {
+      throw new ConflictException('Supplier with this email already exists');
+    }
+
+    const supplier = this.supplierRepository.create({
+      ...registerSupplierDto,
+      registrationStatus: RegistrationStatus.DRAFT,
+      verificationStatus: VerificationStatus.PENDING,
+      isActive: false, // Inactive until verified
+    });
+
+    return this.supplierRepository.save(supplier);
+  }
+
+  async submitRegistration(id: string): Promise<Supplier> {
+    const supplier = await this.findOne(id);
+    
+    if (supplier.registrationStatus !== RegistrationStatus.DRAFT) {
+      throw new BadRequestException('Only draft registrations can be submitted');
+    }
+
+    supplier.registrationStatus = RegistrationStatus.SUBMITTED;
+    supplier.submittedAt = new Date();
+    supplier.verificationStatus = VerificationStatus.UNDER_REVIEW;
+    
+    this.logger.log(`Supplier registration submitted: ${supplier.name}`);
+    return this.supplierRepository.save(supplier);
+  }
+
+  async verifySupplier(id: string, verifyDto: VerifySupplierDto): Promise<Supplier> {
+    const supplier = await this.findOne(id);
+    
+    supplier.verificationStatus = verifyDto.verificationStatus;
+    supplier.verifiedBy = verifyDto.verifiedBy;
+    supplier.verifiedAt = new Date();
+    
+    if (verifyDto.verificationStatus === VerificationStatus.VERIFIED) {
+      supplier.registrationStatus = RegistrationStatus.APPROVED;
+      supplier.approvedAt = new Date();
+      supplier.isActive = true;
+      this.logger.log(`Supplier verified and approved: ${supplier.name}`);
+    } else if (verifyDto.verificationStatus === VerificationStatus.REJECTED) {
+      supplier.registrationStatus = RegistrationStatus.REJECTED;
+      supplier.rejectionReason = verifyDto.rejectionReason;
+      supplier.isActive = false;
+      this.logger.log(`Supplier verification rejected: ${supplier.name}`);
+    }
+    
+    return this.supplierRepository.save(supplier);
+  }
+
+  async updateRegistrationStatus(
+    id: string,
+    updateStatusDto: UpdateRegistrationStatusDto,
+  ): Promise<Supplier> {
+    const supplier = await this.findOne(id);
+    
+    supplier.registrationStatus = updateStatusDto.registrationStatus;
+    
+    if (updateStatusDto.registrationStatus === RegistrationStatus.REJECTED) {
+      supplier.rejectionReason = updateStatusDto.rejectionReason;
+      supplier.isActive = false;
+    }
+    
+    return this.supplierRepository.save(supplier);
+  }
+
+  async getPendingVerifications(): Promise<Supplier[]> {
+    return this.supplierRepository.find({
+      where: {
+        verificationStatus: VerificationStatus.UNDER_REVIEW,
+        registrationStatus: RegistrationStatus.SUBMITTED,
+      },
+      order: { submittedAt: 'ASC' },
+    });
+  }
+
+  async getSuppliersByVerificationStatus(
+    status: VerificationStatus,
+  ): Promise<Supplier[]> {
+    return this.supplierRepository.find({
+      where: { verificationStatus: status },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getSuppliersByRegistrationStatus(
+    status: RegistrationStatus,
+  ): Promise<Supplier[]> {
+    return this.supplierRepository.find({
+      where: { registrationStatus: status },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async uploadDocument(id: string, documentUrl: string): Promise<Supplier> {
+    const supplier = await this.findOne(id);
+    
+    if (!supplier.documents) {
+      supplier.documents = [];
+    }
+    
+    supplier.documents.push(documentUrl);
+    return this.supplierRepository.save(supplier);
+  }
+
+  async removeDocument(id: string, documentUrl: string): Promise<Supplier> {
+    const supplier = await this.findOne(id);
+    
+    if (supplier.documents) {
+      supplier.documents = supplier.documents.filter(doc => doc !== documentUrl);
+    }
+    
+    return this.supplierRepository.save(supplier);
+  }
+
+  async getRegistrationStatistics() {
+    const [total, pending, underReview, verified, rejected] = await Promise.all([
+      this.supplierRepository.count(),
+      this.supplierRepository.count({
+        where: { verificationStatus: VerificationStatus.PENDING },
+      }),
+      this.supplierRepository.count({
+        where: { verificationStatus: VerificationStatus.UNDER_REVIEW },
+      }),
+      this.supplierRepository.count({
+        where: { verificationStatus: VerificationStatus.VERIFIED },
+      }),
+      this.supplierRepository.count({
+        where: { verificationStatus: VerificationStatus.REJECTED },
+      }),
+    ]);
+
+    return {
+      total,
+      pending,
+      underReview,
+      verified,
+      rejected,
+      verificationRate: total > 0 ? (verified / total) * 100 : 0,
+    };
+  }
+
+  async findNearbySuppliers(searchDto: SearchSuppliersDto): Promise<SupplierWithDistance[]> {
+    // Only return verified suppliers
+    const baseQuery = this.supplierRepository
+      .createQueryBuilder('supplier')
+      .where('supplier.isActive = :isActive', { isActive: true })
+      .andWhere('supplier.verificationStatus = :verified', { 
+        verified: VerificationStatus.VERIFIED 
+      });
+    
     const {
       product,
       latitude,

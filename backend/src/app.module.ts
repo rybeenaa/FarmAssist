@@ -17,10 +17,14 @@ import { SuppliersModule } from './suppliers/suppliers.module';
 import { UserPreferencesModule } from './user-preferences/user-preferences.module';
 import { InventoryTrackingModule } from './inventory-stock/inventory-stock.module';
 import { PurchaseRecordingModule } from './purchase-tracking/purchase-tracking.module';
-
 import { AnimalFeedModule } from './animal-feed/animal-feed.module';
 import { SoilTypeRegistryModule } from './soil-type-registry/soil-type-registry.module';
 import { InputPriceTrackerModule } from './input-price-tracker/input-price-tracker.module';
+import { RecommendationLoggingModule } from './recommendation-logging/recommendation-logging.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
+import { FertilizerRecommendationModule } from './fertilizer-recommendation/fertilizer-recommendation.module';
+import { SeedCatalogModule } from './seed-catalog/seed-catalog.module';
+import { VendorsModule } from './vendors/vendors.module';
 import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-marketplace.module';
 
 @Module({
@@ -52,6 +56,11 @@ import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-ma
     AnimalFeedModule,
     SoilTypeRegistryModule,
     InputPriceTrackerModule,
+    RecommendationLoggingModule,
+    RecommendationsModule,
+    FertilizerRecommendationModule,
+    AdvisoryModule,
+    SoilTypeRegistryModule,
     EquipmentMarketplaceModule,
   AdvisoryModule,
   FeedbackModule,
