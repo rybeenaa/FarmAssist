@@ -22,6 +22,7 @@ import { AnimalFeedModule } from './animal-feed/animal-feed.module';
 import { SoilTypeRegistryModule } from './soil-type-registry/soil-type-registry.module';
 import { InputPriceTrackerModule } from './input-price-tracker/input-price-tracker.module';
 import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-marketplace.module';
+import { FarmZoneClassifierModule } from './farm-zone-classifier/farm-zone-classifier.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-ma
     SoilTypeRegistryModule,
     InputPriceTrackerModule,
     EquipmentMarketplaceModule,
+    FarmZoneClassifierModule,
   AdvisoryModule,
   FeedbackModule,
   ],
