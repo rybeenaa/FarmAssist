@@ -462,90 +462,191 @@ curl -X GET http://localhost:3000/farm-zone-classifier/critical-farms
 curl -X GET http://localhost:3000/farm-zone-classifier/predict/farm-profile-uuid
 ```
 
-## Usage Examples
+## 🚀 **Production Deployment**
 
-### Create Farm Zone Classification
-```typescript
-const createDto = {
-  farmProfileId: 'farm-profile-uuid',
-  historicalData: {
-    yields: [3.5, 4.0, 3.8, 4.2, 3.9],
-    seasons: ['2021-Wet', '2021-Dry', '2022-Wet', '2022-Dry', '2023-Wet'],
-    soilQualityScores: [7.5, 8.0, 7.8, 8.2, 7.9],
-    moistureLevels: [55, 60, 58, 62, 59]
-  }
-};
+### **Docker Deployment**
+```dockerfile
+# Dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY dist ./dist
+EXPOSE 3000
+CMD ["node", "dist/main"]
 ```
 
-### Classify Single Farm
-```typescript
-const classifyDto = {
-  farmProfileId: 'farm-profile-uuid',
-  forceRecalculation: false
-};
+### **Docker Compose**
+```yaml
+version: '3.8'
+services:
+  farmassist-api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=farmassist
+      - DATABASE_USERNAME=farmassist
+      - DATABASE_PASSWORD=secure_password
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=farmassist
+      - POSTGRES_USER=farmassist
+      - POSTGRES_PASSWORD=secure_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
 ```
 
-### Bulk Classification
-```typescript
-const bulkDto = {
-  farmProfileIds: ['uuid1', 'uuid2', 'uuid3'],
-  forceRecalculation: true
-};
-```
-
-## Installation & Setup
-
-1. The module is automatically imported in the main AppModule
-2. Ensure database entities are synchronized
-3. FarmProfile entities must exist before creating farm zones
-
-## Testing
-
-The module includes comprehensive test coverage:
-
-- **Unit Tests**: Service and controller logic testing
-- **Integration Tests**: End-to-end API testing with database operations
-- **Classification Logic Tests**: Validation of productivity zone assignments
-
-Run tests:
+### **Environment Configuration**
 ```bash
-npm run test farm-zone-classifier
-npm run test:e2e farm-zone-classifier
+# Production Environment Variables
+NODE_ENV=production
+PORT=3000
+DATABASE_URL=postgresql://user:pass@host:5432/farmassist
+JWT_SECRET=your-super-secure-jwt-secret
+OPENWEATHER_API_KEY=your-weather-api-key
+
+# Performance Tuning
+DB_POOL_SIZE=20
+DB_CONNECTION_TIMEOUT=30000
+CACHE_TTL=3600
+
+# Monitoring
+LOG_LEVEL=info
+ENABLE_METRICS=true
+HEALTH_CHECK_INTERVAL=30000
 ```
 
-## Dependencies
+## 🔒 **Security & Best Practices**
 
-- **TypeORM**: Database operations
-- **NestJS**: Framework and dependency injection
-- **Class Validator**: Input validation
-- **Swagger**: API documentation
+### **Authentication & Authorization**
+- JWT-based authentication with role-based access control
+- API rate limiting to prevent abuse
+- Input validation and sanitization
+- SQL injection prevention through TypeORM
 
-## Recommendations Engine
+### **Data Protection**
+- Encrypted database connections
+- Sensitive data masking in logs
+- GDPR compliance for farmer data
+- Regular security audits
 
-The module generates contextual recommendations based on classification results:
+### **Performance Optimization**
+- Database query optimization with proper indexing
+- Caching strategies for frequently accessed data
+- Connection pooling for database efficiency
+- Asynchronous processing for bulk operations
 
-### High-Yield Farms
-- Maintain current farming practices
-- Consider expanding cultivation area
-- Focus on yield consistency if needed
+## 📊 **Monitoring & Observability**
 
-### Moderate-Yield Farms
-- Implement soil improvement strategies
-- Optimize irrigation scheduling
-- Consider soil testing and fertilization
-- Improve water management systems
+### **Health Checks**
+```bash
+# Application health
+GET /health
 
-### Low-Yield Farms
-- Urgent intervention required
-- Comprehensive soil analysis recommended
-- Consider crop rotation or alternative crops
-- Implement intensive soil rehabilitation
-- Install proper irrigation systems
+# Database connectivity
+GET /health/database
 
-## Future Enhancements
+# External services
+GET /health/weather-service
+```
 
-- Machine learning integration for improved classification accuracy
-- Weather data integration for environmental factor analysis
-- Crop-specific classification models
-- Predictive analytics for yield forecasting
-- Integration with IoT sensors for real-time data collection
+### **Metrics & Logging**
+- Application performance metrics
+- Classification accuracy tracking
+- Error rate monitoring
+- Custom business metrics
+
+### **Alerting**
+- High error rate alerts
+- Performance degradation notifications
+- Critical farm detection alerts
+- System resource monitoring
+
+## 🤝 **Contributing**
+
+### **Development Setup**
+```bash
+# Clone repository
+git clone <repository-url>
+cd FarmAssist/backend
+
+# Install dependencies
+npm install
+
+# Set up development database
+docker-compose -f docker-compose.dev.yml up -d
+
+# Run migrations
+npm run migration:run
+
+# Start development server
+npm run start:dev
+```
+
+### **Code Quality**
+- ESLint and Prettier for code formatting
+- Husky for pre-commit hooks
+- Jest for comprehensive testing
+- SonarQube for code quality analysis
+
+### **Pull Request Process**
+1. Create feature branch from `develop`
+2. Implement changes with tests
+3. Ensure all tests pass
+4. Update documentation
+5. Submit pull request for review
+
+## 📈 **Roadmap & Future Enhancements**
+
+### **Phase 1: Core Enhancements**
+- [ ] Machine learning model integration
+- [ ] Real-time weather data integration
+- [ ] Mobile app API optimization
+- [ ] Advanced caching strategies
+
+### **Phase 2: Advanced Features**
+- [ ] IoT sensor integration
+- [ ] Satellite imagery analysis
+- [ ] Predictive yield modeling
+- [ ] Market price integration
+
+### **Phase 3: Scale & Performance**
+- [ ] Microservices architecture
+- [ ] Event-driven processing
+- [ ] Multi-region deployment
+- [ ] Advanced analytics dashboard
+
+## 📞 **Support & Documentation**
+
+### **API Documentation**
+- **Swagger UI**: Available at `/api` when running
+- **Postman Collection**: Available in `/docs` folder
+- **API Reference**: Comprehensive endpoint documentation
+
+### **Support Channels**
+- **GitHub Issues**: Bug reports and feature requests
+- **Documentation**: Comprehensive guides and tutorials
+- **Community Forum**: Developer discussions and support
+
+## 📄 **License**
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  <strong>Built with ❤️ for Nigerian farmers</strong><br>
+  <em>Empowering agriculture through intelligent data analysis</em>
+</p>
