@@ -300,7 +300,7 @@ export class PerformanceMonitorService {
     const olderAvgConfidence = older.reduce((sum, m) => sum + m.averageConfidence, 0) / older.length;
 
     return {
-      processingTimeT rend: this.getTrend(recentAvgProcessingTime, olderAvgProcessingTime, false),
+      processingTimeTrend: this.getTrend(recentAvgProcessingTime, olderAvgProcessingTime, false),
       errorRateTrend: this.getTrend(recentAvgErrorRate, olderAvgErrorRate, false),
       confidenceTrend: this.getTrend(recentAvgConfidence, olderAvgConfidence, true),
     };
