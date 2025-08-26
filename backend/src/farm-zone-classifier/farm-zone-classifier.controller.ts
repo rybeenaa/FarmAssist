@@ -158,4 +158,152 @@ export class FarmZoneClassifierController {
   async bulkClassifyFarms(@Body(ValidationPipe) bulkClassifyDto: BulkClassifyFarmsDto) {
     return await this.farmZoneClassifierService.bulkClassifyFarms(bulkClassifyDto);
   }
+
+  @Get('analytics')
+  @ApiOperation({ summary: 'Get detailed analytics for all farm zones' })
+  @ApiResponse({
+    status: 200,
+    description: 'Comprehensive analytics including zone distribution, performance metrics, and crop analysis',
+    schema: {
+      type: 'object',
+      properties: {
+        zoneDistribution: {
+          type: 'object',
+          properties: {
+            'high-yield': { type: 'number' },
+            'moderate-yield': { type: 'number' },
+            'low-yield': { type: 'number' },
+          },
+        },
+        averageScoresByZone: {
+          type: 'object',
+          properties: {
+            'high-yield': { type: 'number' },
+            'moderate-yield': { type: 'number' },
+            'low-yield': { type: 'number' },
+          },
+        },
+        totalFarms: { type: 'number' },
+        performanceMetrics: {
+          type: 'object',
+          properties: {
+            highPerformingFarms: { type: 'number' },
+            improvementCandidates: { type: 'number' },
+            criticalFarms: { type: 'number' },
+          },
+        },
+        cropTypeAnalysis: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              cropType: { type: 'string' },
+              averageScore: { type: 'number' },
+              zoneDistribution: {
+                type: 'object',
+                properties: {
+                  'high-yield': { type: 'number' },
+                  'moderate-yield': { type: 'number' },
+                  'low-yield': { type: 'number' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getDetailedAnalytics() {
+    return await this.farmZoneClassifierService.getDetailedAnalytics();
+  }
+
+  @Get('critical-farms')
+  @ApiOperation({ summary: 'Get farms that need immediate attention' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of critical farms with urgency scores and factors',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          farmZone: { $ref: '#/components/schemas/FarmZone' },
+          urgencyScore: { type: 'number', minimum: 0, maximum: 100 },
+          criticalFactors: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+      },
+    },
+  })
+  async getCriticalFarms() {
+    return await this.farmZoneClassifierService.getCriticalFarms();
+  }
+
+  @Get('improvement-strategies/:zoneType')
+  @ApiOperation({ summary: 'Get improvement strategies for a specific zone type' })
+  @ApiParam({
+    name: 'zoneType',
+    enum: ProductivityZone,
+    description: 'Productivity zone type',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Improvement strategies and success metrics for the zone type',
+    schema: {
+      type: 'object',
+      properties: {
+        strategies: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              description: { type: 'string' },
+              priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+              estimatedImpact: { type: 'string' },
+              timeframe: { type: 'string' },
+              cost: { type: 'string', enum: ['low', 'medium', 'high'] },
+            },
+          },
+        },
+        successMetrics: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+      },
+    },
+  })
+  async getImprovementStrategies(@Param('zoneType') zoneType: ProductivityZone) {
+    return await this.farmZoneClassifierService.getZoneImprovementStrategies(zoneType);
+  }
+
+  @Get('predict/:farmProfileId')
+  @ApiOperation({ summary: 'Predict future zone classification based on trends' })
+  @ApiParam({ name: 'farmProfileId', description: 'Farm profile ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Future classification prediction with trend analysis',
+    schema: {
+      type: 'object',
+      properties: {
+        currentZone: { type: 'string', enum: Object.values(ProductivityZone) },
+        predictedZone: { type: 'string', enum: Object.values(ProductivityZone) },
+        confidence: { type: 'number', minimum: 0, maximum: 100 },
+        timeframe: { type: 'string' },
+        trendAnalysis: {
+          type: 'object',
+          properties: {
+            yieldTrend: { type: 'string', enum: ['improving', 'stable', 'declining'] },
+            soilTrend: { type: 'string', enum: ['improving', 'stable', 'declining'] },
+            moistureTrend: { type: 'string', enum: ['improving', 'stable', 'declining'] },
+          },
+        },
+      },
+    },
+  })
+  async predictFutureClassification(@Param('farmProfileId') farmProfileId: string) {
+    return await this.farmZoneClassifierService.predictFutureClassification(farmProfileId);
+  }
 }
