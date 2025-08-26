@@ -523,5 +523,326 @@ export class BlockchainAuditLoggerService implements OnModuleInit {
     }
   }
 
-  // Private helper methods continue in next part...
+  /**
+   * Queue audit log for blockchain submission
+   */
+  private async queueForBlockchainSubmission(auditLogId: string): Promise<void> {
+    // This will be picked up by the cron job
+    this.logger.debug(`Queued audit log ${auditLogId} for blockchain submission`);
+  }
+
+  /**
+   * Queue batch for blockchain submission
+   */
+  private async queueBatchForBlockchainSubmission(auditLogs: AuditLog[], merkleRoot: string): Promise<void> {
+    try {
+      // Submit batch to blockchain
+      const hashes = auditLogs.map(log => log.dataHash);
+      const eventType = auditLogs[0].eventType; // Use first event type for batch
+
+      const txResult = await this.flareNetworkService.submitBatchAuditEvents(hashes, merkleRoot, eventType);
+
+      // Create blockchain transaction record
+      const blockchainTx = this.blockchainTransactionRepository.create({
+        transactionHash: txResult.hash,
+        status: TransactionStatus.SUBMITTED,
+        networkType: this.flareNetworkService.getNetworkType(),
+        fromAddress: txResult.from,
+        toAddress: txResult.to,
+        gasLimit: txResult.gasLimit,
+        gasPrice: txResult.gasPrice,
+        contractMethod: 'logBatchAuditEvent',
+        contractInputs: { hashes, merkleRoot, eventType },
+        submittedAt: new Date(),
+      });
+
+      await this.blockchainTransactionRepository.save(blockchainTx);
+
+      // Update audit logs status
+      await this.auditLogRepository.update(
+        { id: { $in: auditLogs.map(log => log.id) } as any },
+        {
+          status: AuditStatus.BLOCKCHAIN_SUBMITTED,
+          blockchainSubmittedAt: new Date(),
+        }
+      );
+
+      this.logger.log(`Batch submitted to blockchain: ${txResult.hash}`);
+    } catch (error) {
+      this.logger.error(`Failed to queue batch for blockchain: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Process a batch of audit logs
+   */
+  private async processBatch(auditLogs: AuditLog[]): Promise<void> {
+    if (auditLogs.length === 1) {
+      // Single submission
+      await this.submitSingleAuditLog(auditLogs[0]);
+    } else {
+      // Batch submission with Merkle tree
+      await this.submitBatchAuditLogs(auditLogs);
+    }
+  }
+
+  /**
+   * Submit single audit log to blockchain
+   */
+  private async submitSingleAuditLog(auditLog: AuditLog): Promise<void> {
+    try {
+      const txResult = await this.flareNetworkService.submitAuditEvent(
+        auditLog.dataHash,
+        auditLog.eventType,
+        auditLog.metadata || {},
+      );
+
+      // Create blockchain transaction record
+      const blockchainTx = this.blockchainTransactionRepository.create({
+        auditLog,
+        transactionHash: txResult.hash,
+        status: TransactionStatus.SUBMITTED,
+        networkType: this.flareNetworkService.getNetworkType(),
+        fromAddress: txResult.from,
+        toAddress: txResult.to,
+        gasLimit: txResult.gasLimit,
+        gasPrice: txResult.gasPrice,
+        contractMethod: 'logAuditEvent',
+        contractInputs: { dataHash: auditLog.dataHash, eventType: auditLog.eventType },
+        submittedAt: new Date(),
+      });
+
+      await this.blockchainTransactionRepository.save(blockchainTx);
+
+      // Update audit log status
+      auditLog.status = AuditStatus.BLOCKCHAIN_SUBMITTED;
+      auditLog.blockchainSubmittedAt = new Date();
+      await this.auditLogRepository.save(auditLog);
+
+      this.logger.log(`Audit log ${auditLog.id} submitted to blockchain: ${txResult.hash}`);
+    } catch (error) {
+      // Mark as failed and increment retry count
+      auditLog.status = AuditStatus.FAILED;
+      auditLog.retryCount++;
+      auditLog.lastError = error.message;
+      auditLog.lastRetryAt = new Date();
+      await this.auditLogRepository.save(auditLog);
+
+      this.logger.error(`Failed to submit audit log ${auditLog.id}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Submit batch audit logs to blockchain
+   */
+  private async submitBatchAuditLogs(auditLogs: AuditLog[]): Promise<void> {
+    try {
+      // Create Merkle tree for the batch
+      const merkleResult = this.auditHashingService.hashBatchWithMerkleTree(
+        auditLogs.map(log => log.originalData)
+      );
+
+      // Update audit logs with Merkle data
+      for (let i = 0; i < auditLogs.length; i++) {
+        auditLogs[i].merkleRoot = merkleResult.merkleRoot;
+        auditLogs[i].merkleProof = merkleResult.merkleTree[i].proof;
+      }
+
+      await this.auditLogRepository.save(auditLogs);
+
+      // Submit to blockchain
+      await this.queueBatchForBlockchainSubmission(auditLogs, merkleResult.merkleRoot);
+    } catch (error) {
+      // Mark all as failed
+      for (const auditLog of auditLogs) {
+        auditLog.status = AuditStatus.FAILED;
+        auditLog.retryCount++;
+        auditLog.lastError = error.message;
+        auditLog.lastRetryAt = new Date();
+      }
+      await this.auditLogRepository.save(auditLogs);
+
+      this.logger.error(`Failed to submit batch audit logs: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Retry failed blockchain submission
+   */
+  private async retryBlockchainSubmission(auditLog: AuditLog): Promise<void> {
+    if (auditLog.retryCount >= this.retryAttempts) {
+      this.logger.warn(`Max retry attempts reached for audit log ${auditLog.id}`);
+      return;
+    }
+
+    // Wait before retry
+    await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+
+    try {
+      await this.submitSingleAuditLog(auditLog);
+    } catch (error) {
+      this.logger.error(`Retry failed for audit log ${auditLog.id}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Calculate blockchain metrics
+   */
+  private async calculateBlockchainMetrics() {
+    const totalTransactions = await this.blockchainTransactionRepository.count();
+    const confirmedTransactions = await this.blockchainTransactionRepository.count({
+      where: { status: TransactionStatus.CONFIRMED }
+    });
+    const failedTransactions = await this.blockchainTransactionRepository.count({
+      where: { status: TransactionStatus.FAILED }
+    });
+
+    // Calculate average confirmation time
+    const confirmedTxs = await this.blockchainTransactionRepository.find({
+      where: { status: TransactionStatus.CONFIRMED },
+      select: ['submittedAt', 'confirmedAt'],
+    });
+
+    const avgConfirmationTime = confirmedTxs.length > 0
+      ? confirmedTxs.reduce((sum, tx) => {
+          if (tx.submittedAt && tx.confirmedAt) {
+            return sum + (tx.confirmedAt.getTime() - tx.submittedAt.getTime());
+          }
+          return sum;
+        }, 0) / confirmedTxs.length
+      : 0;
+
+    // Calculate total gas cost
+    const gasUsedTxs = await this.blockchainTransactionRepository.find({
+      where: { status: TransactionStatus.CONFIRMED },
+      select: ['gasUsed', 'effectiveGasPrice'],
+    });
+
+    const totalGasCost = gasUsedTxs.reduce((sum, tx) => {
+      if (tx.gasUsed && tx.effectiveGasPrice) {
+        return sum + BigInt(tx.gasUsed) * BigInt(tx.effectiveGasPrice);
+      }
+      return sum;
+    }, 0n);
+
+    return {
+      totalTransactions,
+      confirmedTransactions,
+      failedTransactions,
+      averageConfirmationTime: Math.round(avgConfirmationTime),
+      totalGasCost: totalGasCost.toString(),
+    };
+  }
+
+  /**
+   * Calculate performance metrics
+   */
+  private async calculatePerformanceMetrics() {
+    const totalLogs = await this.auditLogRepository.count();
+    const successfulLogs = await this.auditLogRepository.count({
+      where: { status: AuditStatus.BLOCKCHAIN_CONFIRMED }
+    });
+    const retriedLogs = await this.auditLogRepository.count({
+      where: { retryCount: { $gt: 0 } as any }
+    });
+
+    // Calculate average processing time
+    const confirmedLogs = await this.auditLogRepository.find({
+      where: { status: AuditStatus.BLOCKCHAIN_CONFIRMED },
+      select: ['createdAt', 'blockchainConfirmedAt'],
+    });
+
+    const avgProcessingTime = confirmedLogs.length > 0
+      ? confirmedLogs.reduce((sum, log) => {
+          if (log.blockchainConfirmedAt) {
+            return sum + (log.blockchainConfirmedAt.getTime() - log.createdAt.getTime());
+          }
+          return sum;
+        }, 0) / confirmedLogs.length
+      : 0;
+
+    return {
+      averageProcessingTime: Math.round(avgProcessingTime),
+      successRate: totalLogs > 0 ? (successfulLogs / totalLogs) * 100 : 0,
+      retryRate: totalLogs > 0 ? (retriedLogs / totalLogs) * 100 : 0,
+    };
+  }
+
+  /**
+   * Estimate blockchain costs
+   */
+  private async estimateBlockchainCosts(transactionCount: number) {
+    try {
+      const gasPrice = await this.flareNetworkService.getCurrentGasPrice();
+      const gasPerTransaction = '300000'; // Estimated gas per transaction
+
+      const totalGasEstimate = (BigInt(gasPerTransaction) * BigInt(transactionCount)).toString();
+      const estimatedCostWei = (BigInt(totalGasEstimate) * BigInt(gasPrice)).toString();
+      const estimatedCostEth = (Number(estimatedCostWei) / 1e18).toFixed(6);
+
+      return {
+        totalGasEstimate,
+        estimatedCostWei,
+        estimatedCostEth,
+      };
+    } catch (error) {
+      return {
+        totalGasEstimate: '0',
+        estimatedCostWei: '0',
+        estimatedCostEth: '0.000000',
+      };
+    }
+  }
+
+  /**
+   * Map audit log entity to response DTO
+   */
+  private mapToResponseDto(auditLog: AuditLog): AuditLogResponseDto {
+    return {
+      id: auditLog.id,
+      eventType: auditLog.eventType,
+      status: auditLog.status,
+      description: auditLog.description,
+      dataHash: auditLog.dataHash,
+      merkleRoot: auditLog.merkleRoot,
+      userId: auditLog.userId,
+      entityId: auditLog.entityId,
+      entityType: auditLog.entityType,
+      metadata: auditLog.metadata,
+      retryCount: auditLog.retryCount,
+      lastError: auditLog.lastError,
+      blockchainSubmittedAt: auditLog.blockchainSubmittedAt,
+      blockchainConfirmedAt: auditLog.blockchainConfirmedAt,
+      createdAt: auditLog.createdAt,
+      updatedAt: auditLog.updatedAt,
+      blockchainTransactions: auditLog.blockchainTransactions?.map(tx => ({
+        id: tx.id,
+        transactionHash: tx.transactionHash,
+        status: tx.status,
+        networkType: tx.networkType,
+        blockNumber: tx.blockNumber,
+        confirmations: tx.confirmations,
+        gasUsed: tx.gasUsed,
+        totalGasCost: tx.totalGasCost,
+        explorerUrl: tx.explorerUrl,
+      })),
+      isBlockchainConfirmed: auditLog.isBlockchainConfirmed,
+      processingTimeMs: auditLog.processingTimeMs,
+    };
+  }
+
+  /**
+   * Utility function to chunk array into smaller arrays
+   */
+  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+}
 }
