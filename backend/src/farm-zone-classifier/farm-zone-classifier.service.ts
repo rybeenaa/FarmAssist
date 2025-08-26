@@ -228,7 +228,7 @@ export class FarmZoneClassifierService {
   }
 
   /**
-   * Get productivity zone statistics
+   * Get productivity zone statistics with enhanced analytics
    */
   async getZoneStatistics(): Promise<Record<ProductivityZone, number>> {
     const stats = await this.farmZoneRepository
@@ -249,6 +249,130 @@ export class FarmZoneClassifierService {
     });
 
     return result;
+  }
+
+  /**
+   * Get detailed analytics for farm zones
+   */
+  async getDetailedAnalytics(): Promise<{
+    zoneDistribution: Record<ProductivityZone, number>;
+    averageScoresByZone: Record<ProductivityZone, number>;
+    totalFarms: number;
+    performanceMetrics: {
+      highPerformingFarms: number;
+      improvementCandidates: number;
+      criticalFarms: number;
+    };
+    cropTypeAnalysis: Array<{
+      cropType: string;
+      averageScore: number;
+      zoneDistribution: Record<ProductivityZone, number>;
+    }>;
+  }> {
+    const allZones = await this.farmZoneRepository.find({
+      relations: ['farmProfile']
+    });
+
+    const zoneDistribution = await this.getZoneStatistics();
+
+    // Calculate average scores by zone
+    const averageScoresByZone: Record<ProductivityZone, number> = {
+      [ProductivityZone.HIGH_YIELD]: 0,
+      [ProductivityZone.MODERATE_YIELD]: 0,
+      [ProductivityZone.LOW_YIELD]: 0,
+    };
+
+    Object.values(ProductivityZone).forEach(zone => {
+      const zonesOfType = allZones.filter(z => z.zoneType === zone);
+      if (zonesOfType.length > 0) {
+        averageScoresByZone[zone] = zonesOfType.reduce((sum, z) => sum + z.productivityScore, 0) / zonesOfType.length;
+      }
+    });
+
+    // Crop type analysis
+    const cropTypes = [...new Set(allZones.map(z => z.farmProfile.cropType))];
+    const cropTypeAnalysis = cropTypes.map(cropType => {
+      const cropZones = allZones.filter(z => z.farmProfile.cropType === cropType);
+      const avgScore = cropZones.reduce((sum, z) => sum + z.productivityScore, 0) / cropZones.length;
+
+      const cropZoneDistribution: Record<ProductivityZone, number> = {
+        [ProductivityZone.HIGH_YIELD]: 0,
+        [ProductivityZone.MODERATE_YIELD]: 0,
+        [ProductivityZone.LOW_YIELD]: 0,
+      };
+
+      cropZones.forEach(zone => {
+        cropZoneDistribution[zone.zoneType]++;
+      });
+
+      return {
+        cropType,
+        averageScore: Math.round(avgScore * 100) / 100,
+        zoneDistribution: cropZoneDistribution,
+      };
+    });
+
+    return {
+      zoneDistribution,
+      averageScoresByZone: Object.fromEntries(
+        Object.entries(averageScoresByZone).map(([key, value]) => [key, Math.round(value * 100) / 100])
+      ) as Record<ProductivityZone, number>,
+      totalFarms: allZones.length,
+      performanceMetrics: {
+        highPerformingFarms: zoneDistribution[ProductivityZone.HIGH_YIELD],
+        improvementCandidates: zoneDistribution[ProductivityZone.MODERATE_YIELD],
+        criticalFarms: zoneDistribution[ProductivityZone.LOW_YIELD],
+      },
+      cropTypeAnalysis,
+    };
+  }
+
+  /**
+   * Get farms that need immediate attention
+   */
+  async getCriticalFarms(): Promise<Array<{
+    farmZone: FarmZone;
+    urgencyScore: number;
+    criticalFactors: string[];
+  }>> {
+    const lowYieldFarms = await this.farmZoneRepository.find({
+      where: { zoneType: ProductivityZone.LOW_YIELD },
+      relations: ['farmProfile']
+    });
+
+    return lowYieldFarms.map(farmZone => {
+      const urgencyScore = this.calculateUrgencyScore(farmZone);
+      const criticalFactors = this.identifyCriticalFactors(farmZone);
+
+      return {
+        farmZone,
+        urgencyScore,
+        criticalFactors,
+      };
+    }).sort((a, b) => b.urgencyScore - a.urgencyScore);
+  }
+
+  /**
+   * Get improvement recommendations for a specific zone type
+   */
+  async getZoneImprovementStrategies(zoneType: ProductivityZone): Promise<{
+    strategies: Array<{
+      title: string;
+      description: string;
+      priority: 'high' | 'medium' | 'low';
+      estimatedImpact: string;
+      timeframe: string;
+      cost: 'low' | 'medium' | 'high';
+    }>;
+    successMetrics: string[];
+  }> {
+    const strategies = this.getImprovementStrategiesByZone(zoneType);
+    const successMetrics = this.getSuccessMetricsByZone(zoneType);
+
+    return {
+      strategies,
+      successMetrics,
+    };
   }
 
   /**
@@ -457,5 +581,251 @@ export class FarmZoneClassifierService {
 
     return Math.round(confidence);
   }
-}
+
+  /**
+   * Calculate urgency score for critical farms
+   */
+  private calculateUrgencyScore(farmZone: FarmZone): number {
+    const { productivityScore, averageYield, historicalData } = farmZone;
+
+    let urgencyScore = 0;
+
+    // Base urgency from productivity score
+    urgencyScore += (50 - productivityScore) * 2; // Higher urgency for lower scores
+
+    // Yield-based urgency
+    if (averageYield < 1.5) urgencyScore += 30;
+    else if (averageYield < 2.0) urgencyScore += 20;
+
+    // Trend-based urgency (declining yields)
+    const yields = historicalData.yields;
+    if (yields.length >= 3) {
+      const recentTrend = yields.slice(-3);
+      const isDecreasing = recentTrend.every((yield, i) => i === 0 || yield <= recentTrend[i - 1]);
+      if (isDecreasing) urgencyScore += 25;
+    }
+
+    return Math.min(100, Math.max(0, urgencyScore));
+  }
+
+  /**
+   * Identify critical factors for low-performing farms
+   */
+  private identifyCriticalFactors(farmZone: FarmZone): string[] {
+    const factors: string[] = [];
+    const { historicalData, productivityScore } = farmZone;
+
+    // Check soil quality
+    const avgSoilQuality = historicalData.soilQualityScores.reduce((sum, score) => sum + score, 0) / historicalData.soilQualityScores.length;
+    if (avgSoilQuality < 5) factors.push('Poor soil quality');
+
+    // Check moisture levels
+    const avgMoisture = historicalData.moistureLevels.reduce((sum, level) => sum + level, 0) / historicalData.moistureLevels.length;
+    if (avgMoisture < 30 || avgMoisture > 80) factors.push('Inadequate moisture management');
+
+    // Check yield consistency
+    const yieldConsistency = this.calculateYieldConsistency(historicalData.yields);
+    if (yieldConsistency < 60) factors.push('Inconsistent yield performance');
+
+    // Check seasonal performance
+    const seasonalPerformance = this.calculateSeasonalPerformance(historicalData.yields);
+    if (seasonalPerformance < 40) factors.push('Poor seasonal adaptation');
+
+    return factors;
+  }
+
+  /**
+   * Get improvement strategies by zone type
+   */
+  private getImprovementStrategiesByZone(zoneType: ProductivityZone) {
+    const strategies = {
+      [ProductivityZone.HIGH_YIELD]: [
+        {
+          title: 'Precision Agriculture Implementation',
+          description: 'Deploy IoT sensors and GPS-guided equipment for optimal resource utilization',
+          priority: 'medium' as const,
+          estimatedImpact: '5-10% yield increase',
+          timeframe: '6-12 months',
+          cost: 'high' as const,
+        },
+        {
+          title: 'Market Expansion Strategy',
+          description: 'Explore premium markets and value-added crop varieties',
+          priority: 'low' as const,
+          estimatedImpact: '15-25% revenue increase',
+          timeframe: '12-18 months',
+          cost: 'medium' as const,
+        },
+      ],
+      [ProductivityZone.MODERATE_YIELD]: [
+        {
+          title: 'Soil Health Enhancement',
+          description: 'Implement organic matter improvement and balanced fertilization',
+          priority: 'high' as const,
+          estimatedImpact: '15-25% yield increase',
+          timeframe: '3-6 months',
+          cost: 'medium' as const,
+        },
+        {
+          title: 'Irrigation System Optimization',
+          description: 'Install drip irrigation or improve water scheduling',
+          priority: 'high' as const,
+          estimatedImpact: '10-20% yield increase',
+          timeframe: '2-4 months',
+          cost: 'medium' as const,
+        },
+        {
+          title: 'Crop Rotation Implementation',
+          description: 'Introduce nitrogen-fixing crops and diversified rotation',
+          priority: 'medium' as const,
+          estimatedImpact: '20-30% long-term improvement',
+          timeframe: '12-24 months',
+          cost: 'low' as const,
+        },
+      ],
+      [ProductivityZone.LOW_YIELD]: [
+        {
+          title: 'Emergency Soil Rehabilitation',
+          description: 'Comprehensive soil testing and immediate nutrient correction',
+          priority: 'high' as const,
+          estimatedImpact: '50-100% yield recovery',
+          timeframe: '1-3 months',
+          cost: 'high' as const,
+        },
+        {
+          title: 'Water Management Crisis Response',
+          description: 'Install basic irrigation and drainage systems',
+          priority: 'high' as const,
+          estimatedImpact: '40-80% yield improvement',
+          timeframe: '1-2 months',
+          cost: 'high' as const,
+        },
+        {
+          title: 'Alternative Crop Assessment',
+          description: 'Evaluate drought-resistant or soil-appropriate crop varieties',
+          priority: 'medium' as const,
+          estimatedImpact: '30-60% yield improvement',
+          timeframe: '6-12 months',
+          cost: 'low' as const,
+        },
+      ],
+    };
+
+    return strategies[zoneType] || [];
+  }
+
+  /**
+   * Get success metrics by zone type
+   */
+  private getSuccessMetricsByZone(zoneType: ProductivityZone): string[] {
+    const metrics = {
+      [ProductivityZone.HIGH_YIELD]: [
+        'Maintain yield above 4.0 tons/hectare',
+        'Keep productivity score above 80%',
+        'Achieve yield consistency above 85%',
+        'Expand cultivation area by 10-20%',
+      ],
+      [ProductivityZone.MODERATE_YIELD]: [
+        'Increase average yield to 3.5+ tons/hectare',
+        'Improve productivity score to 75%+',
+        'Achieve soil quality score above 7.0',
+        'Maintain moisture levels between 40-70%',
+      ],
+      [ProductivityZone.LOW_YIELD]: [
+        'Achieve minimum yield of 2.0 tons/hectare',
+        'Improve productivity score above 50%',
+        'Stabilize yield consistency above 60%',
+        'Establish basic irrigation infrastructure',
+      ],
+    };
+
+    return metrics[zoneType] || [];
+  }
+
+  /**
+   * Predict future zone classification based on trends
+   */
+  async predictFutureClassification(farmProfileId: string): Promise<{
+    currentZone: ProductivityZone;
+    predictedZone: ProductivityZone;
+    confidence: number;
+    timeframe: string;
+    trendAnalysis: {
+      yieldTrend: 'improving' | 'stable' | 'declining';
+      soilTrend: 'improving' | 'stable' | 'declining';
+      moistureTrend: 'improving' | 'stable' | 'declining';
+    };
+  }> {
+    const farmZone = await this.findByFarmProfile(farmProfileId);
+
+    if (!farmZone) {
+      throw new NotFoundException(`No farm zone found for farm profile ${farmProfileId}`);
+    }
+
+    const { historicalData } = farmZone;
+    const trendAnalysis = this.analyzeTrends(historicalData);
+
+    // Simple prediction logic based on trends
+    let predictedZone = farmZone.zoneType;
+    let confidence = 70;
+
+    if (trendAnalysis.yieldTrend === 'improving' && trendAnalysis.soilTrend === 'improving') {
+      if (farmZone.zoneType === ProductivityZone.LOW_YIELD) {
+        predictedZone = ProductivityZone.MODERATE_YIELD;
+        confidence = 80;
+      } else if (farmZone.zoneType === ProductivityZone.MODERATE_YIELD) {
+        predictedZone = ProductivityZone.HIGH_YIELD;
+        confidence = 75;
+      }
+    } else if (trendAnalysis.yieldTrend === 'declining' && trendAnalysis.soilTrend === 'declining') {
+      if (farmZone.zoneType === ProductivityZone.HIGH_YIELD) {
+        predictedZone = ProductivityZone.MODERATE_YIELD;
+        confidence = 75;
+      } else if (farmZone.zoneType === ProductivityZone.MODERATE_YIELD) {
+        predictedZone = ProductivityZone.LOW_YIELD;
+        confidence = 80;
+      }
+    }
+
+    return {
+      currentZone: farmZone.zoneType,
+      predictedZone,
+      confidence,
+      timeframe: '6-12 months',
+      trendAnalysis,
+    };
+  }
+
+  /**
+   * Analyze trends in historical data
+   */
+  private analyzeTrends(historicalData: any): {
+    yieldTrend: 'improving' | 'stable' | 'declining';
+    soilTrend: 'improving' | 'stable' | 'declining';
+    moistureTrend: 'improving' | 'stable' | 'declining';
+  } {
+    const analyzeTrendArray = (data: number[]) => {
+      if (data.length < 3) return 'stable';
+
+      const recent = data.slice(-3);
+      const older = data.slice(0, -3);
+
+      if (older.length === 0) return 'stable';
+
+      const recentAvg = recent.reduce((sum, val) => sum + val, 0) / recent.length;
+      const olderAvg = older.reduce((sum, val) => sum + val, 0) / older.length;
+
+      const changePercent = ((recentAvg - olderAvg) / olderAvg) * 100;
+
+      if (changePercent > 5) return 'improving';
+      if (changePercent < -5) return 'declining';
+      return 'stable';
+    };
+
+    return {
+      yieldTrend: analyzeTrendArray(historicalData.yields),
+      soilTrend: analyzeTrendArray(historicalData.soilQualityScores),
+      moistureTrend: analyzeTrendArray(historicalData.moistureLevels),
+    };
+  }
 }
