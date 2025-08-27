@@ -26,6 +26,7 @@ import { FertilizerRecommendationModule } from './fertilizer-recommendation/fert
 import { SeedCatalogModule } from './seed-catalog/seed-catalog.module';
 import { VendorsModule } from './vendors/vendors.module';
 import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-marketplace.module';
+import { FarmZoneClassifierModule } from './farm-zone-classifier/farm-zone-classifier.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-ma
     AdvisoryModule,
     SoilTypeRegistryModule,
     EquipmentMarketplaceModule,
+    FarmZoneClassifierModule,
   AdvisoryModule,
   FeedbackModule,
   ],
