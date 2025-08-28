@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { MockPurchasePlannerModule } from './mock-purchase-planner/mock-purchase-planner.module';
 import { AdvisoryModule } from './advisory/advisory.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -11,8 +12,9 @@ import { WeatherModule } from './weather/weather.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { HealthModule } from './health/health.module';
 import { UtilsModule } from './utils/utils.module';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { HealthInterceptor } from './health/health.interceptor';
+import { ValidationPipe } from '@nestjs/common';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { UserPreferencesModule } from './user-preferences/user-preferences.module';
 import { InventoryTrackingModule } from './inventory-stock/inventory-stock.module';
@@ -66,10 +68,15 @@ import { FarmZoneClassifierModule } from './farm-zone-classifier/farm-zone-class
     FarmZoneClassifierModule,
   AdvisoryModule,
   FeedbackModule,
+  MockPurchasePlannerModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({ whitelist: true, transform: true }),
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: HealthInterceptor,
