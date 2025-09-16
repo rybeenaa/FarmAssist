@@ -30,6 +30,7 @@ import { VendorsModule } from './vendors/vendors.module';
 import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-marketplace.module';
 import { FarmZoneClassifierModule } from './farm-zone-classifier/farm-zone-classifier.module';
 import { SeedDemandPredictorModule } from './seed-demand-predictor/seed-demand-predictor.module';
+import { CropsModule } from './crops/crops.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { SeedDemandPredictorModule } from './seed-demand-predictor/seed-demand-p
     EquipmentMarketplaceModule,
     FarmZoneClassifierModule,
     SeedDemandPredictorModule,
+    CropsModule,
   AdvisoryModule,
   FeedbackModule,
   MockPurchasePlannerModule,
