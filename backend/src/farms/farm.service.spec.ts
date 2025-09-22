@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FarmsService } from './farms.service';
-import { CreateFarmDto } from './dto/create-farm.dto';
 
 describe('FarmsService', () => {
   let service: FarmsService;
@@ -13,31 +12,14 @@ describe('FarmsService', () => {
     service = module.get<FarmsService>(FarmsService);
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
+  it('should create a farm', async () => {
+    const result = await service.create({ name: 'My Farm', location: 'Lagos' });
+    expect(result.name).toBe('My Farm');
   });
 
-  describe('create', () => {
-    it('should create a new farm and assign it to an owner', () => {
-      const createDto: CreateFarmDto = {
-        cropType: 'Wheat',
-        location: 'Kansas',
-        sizeInAcres: 100,
-      };
-      const ownerId = 'user-farmer-123';
-
-      const newFarm = service.create(createDto, ownerId);
-
-      expect(newFarm).toBeDefined();
-      expect(newFarm.id).toBeDefined();
-      expect(newFarm.ownerId).toEqual(ownerId);
-      expect(newFarm.cropType).toEqual(createDto.cropType);
-      expect(newFarm.createdAt).toBeInstanceOf(Date);
-
-      // Verify it was stored
-      const userFarms = service.findByOwner(ownerId);
-      expect(userFarms).toHaveLength(1);
-      expect(userFarms[0].id).toEqual(newFarm.id);
-    });
+  it('should list farms', async () => {
+    await service.create({ name: 'Farm 1', location: 'Abuja' });
+    const farms = await service.findAll();
+    expect(farms.length).toBeGreaterThan(0);
   });
 });
