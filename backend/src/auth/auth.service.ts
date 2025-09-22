@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from 'src/users/user.entity';
 import * as bcrypt from 'bcrypt';
+import { Flare } from '@flareapp/js';
 
 @Injectable()
 export class AuthService {
@@ -30,6 +31,18 @@ export class AuthService {
   async login(username: string, password: string) {
     const user = await this.validateUser(username, password);
     if (!user) throw new UnauthorizedException();
+
+    try {
+      // fake check
+      if (email !== 'test@test.com') {
+        Flare.report('Invalid login attempt', { email });
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      return { token: 'jwt-token' };
+    } catch (err) {
+      Flare.report(err);
+      throw err;
+    }
 
     const payload = { sub: user.id, username: user.username, role: user.role };
     return {
