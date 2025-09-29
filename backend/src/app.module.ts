@@ -31,6 +31,7 @@ import { EquipmentMarketplaceModule } from './equipment-marketplace/equipment-ma
 import { FarmZoneClassifierModule } from './farm-zone-classifier/farm-zone-classifier.module';
 import { SeedDemandPredictorModule } from './seed-demand-predictor/seed-demand-predictor.module';
 import { CropsModule } from './crops/crops.module';
+import { ProductCertificateNftModule } from './product-certificate-nft/product-certificate-nft.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { CropsModule } from './crops/crops.module';
   AdvisoryModule,
   FeedbackModule,
   MockPurchasePlannerModule,
+  ProductCertificateNftModule,
   ],
   controllers: [AppController],
   providers: [
