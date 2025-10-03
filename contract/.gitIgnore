@@ -1,0 +1,37 @@
+# Ignore Node.js dependency folders
+node_modules/
+
+# Ignore environment files containing secret keys
+# This is a critical security measure.
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Ignore log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ignore build artifacts from Hardhat, Foundry, or Truffle
+artifacts/
+cache/
+out/
+build/
+
+# Ignore test coverage reports
+coverage/
+coverage.json
+
+# Ignore generated TypeScript typings (for Hardhat)
+typechain/
+typechain-types/
+
+# Ignore macOS specific files
+.DS_Store
+
+# Ignore editor-specific files
+.vscode/
+.idea/
+*.swp
